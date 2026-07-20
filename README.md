@@ -4,16 +4,16 @@ A backend service for a banking application built using Node.js, Express.js, and
 
 ## Features
 
-- User registration and authentication using JWT
+- User registration and JWT authentication
 - Cookie-based authentication
 - Account creation and management
 - Secure fund transfers
 - Double-entry ledger architecture
-- Dynamic balance calculation using aggregation
-- MongoDB transactions with sessions
+- Dynamic balance calculation using MongoDB Aggregation
+- MongoDB transactions with sessions (ACID)
 - Idempotent transaction handling
-- Transaction email notifications
-- JWT blacklisting for logout
+- Email notifications using Gmail API (OAuth 2.0) and Nodemailer
+- JWT blacklisting for secure logout
 - MongoDB Atlas integration
 - Deployment on Render
 
@@ -21,14 +21,27 @@ A backend service for a banking application built using Node.js, Express.js, and
 
 ## Tech Stack
 
+### Backend
 - Node.js
 - Express.js
+
+### Database
 - MongoDB Atlas
 - Mongoose
+
+### Authentication & Security
 - JWT
 - bcrypt
-- Nodemailer
 - Cookie Parser
+
+### Email
+- Nodemailer
+- Gmail API (OAuth 2.0)
+
+### Deployment
+- Render
+
+### Utilities
 - dotenv
 
 ---
@@ -112,26 +125,18 @@ Mark Transaction as Completed
         ▼
 Send Transaction Email
 ```
+## Email Notifications
 
-All database operations are executed within a MongoDB session to maintain ACID properties.
+The application sends transactional emails using the Gmail API with OAuth 2.0 authentication through Nodemailer.
+
+Notifications are sent for:
+
+- Successful account registration
+- Successful fund transfers
 
 ---
 
-## Environment Variables
-
-Create a `.env` file in the project root.
-
-```env
-PORT=3000
-
-MONGO_URI=
-
-JWT_SECRET=
-
-EMAIL_USER=
-
-EMAIL_PASS=
-```
+All database operations are executed within a MongoDB session to maintain ACID properties.
 
 ---
 
