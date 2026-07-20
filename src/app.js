@@ -15,10 +15,7 @@ const transactionRouter = require('./routes/transaction.routes');
 
 //Dummy
 app.get('/', (req, res) => {
-  res.status(200).json({
-    message: "Welcome to the Ledger API",
-    status: "success",
-  });
+  res.send('Welcome to the Backend Ledger API');
 });
 
 //Use routes
