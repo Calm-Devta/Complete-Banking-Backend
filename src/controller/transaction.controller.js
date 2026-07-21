@@ -2,6 +2,7 @@ const transactionModel = require("../models/transaction.model");
 const ledgerModel = require("../models/ledger.model");
 const accountModel = require("../models/account.model");
 const emailService = require("../services/email.service");
+const redisService = require("../services/redis.service");
 const mongoose = require("mongoose");
 /**
  * - Create a new transaction between two accounts
@@ -124,55 +125,72 @@ async function createTransactionController(req, res) {
     let transaction;
 
     try {
-    const session = await mongoose.startSession();
-    session.startTransaction();
+      const session = await mongoose.startSession();
+      session.startTransaction();
 
-    transaction = (await transactionModel.create([
-      {
-        fromAccount,
-        toAccount,
-        amount,
-        status: "pending",
-        idempotencyKey,
-      }],{ session }))[ 0 ];
+      transaction = (
+        await transactionModel.create(
+          [
+            {
+              fromAccount,
+              toAccount,
+              amount,
+              status: "pending",
+              idempotencyKey,
+            },
+          ],
+          { session },
+        )
+      )[0];
 
-    const debitLedgerEntry = await ledgerModel.create([
-      {
-        account: fromAccount,
-        amount: amount,
-        transaction: transaction._id,
-        type: "debit",
-      }],
-      { session },
-    );
+      const debitLedgerEntry = await ledgerModel.create(
+        [
+          {
+            account: fromAccount,
+            amount: amount,
+            transaction: transaction._id,
+            type: "debit",
+          },
+        ],
+        { session },
+      );
 
-    await (() => {
+      await (() => {
         return new Promise((resolve) => setTimeout(resolve, 10 * 1000));
-    })()
+      })();
 
-    const creditLedgerEntry = await ledgerModel.create([
-      {
-        account: toAccount,
-        amount: amount,
-        transaction: transaction._id,
-        type: "credit",
-      }],
-      { session },
-    );
+      const creditLedgerEntry = await ledgerModel.create(
+        [
+          {
+            account: toAccount,
+            amount: amount,
+            transaction: transaction._id,
+            type: "credit",
+          },
+        ],
+        { session },
+      );
 
-    transaction.status = "completed";
-    await transaction.save({ session });
+      transaction.status = "completed";
+      await transaction.save({ session });
 
-    await transactionModel.findOneAndUpdate(
-        {_id: transaction._id},
-        {status : "completed"},
-        {session}
-    )
-}catch (error) {
-    res.status(400).json({
-        message: "Transaction in progress, please try wait"
-    })
-}
+      await transactionModel.findOneAndUpdate(
+        { _id: transaction._id },
+        { status: "completed" },
+        { session },
+      );
+    } catch (error) {
+      res.status(400).json({
+        message: "Transaction in progress, please try wait",
+      });
+    }
+
+    //Redis cache update for both accounts
+    const fromUserBalance = await fromUser.getBalance();
+    const toUserBalance = await toUser.getBalance();
+
+    await redisService.setBalanceCache(fromUser._id, fromUserBalance);
+    await redisService.setBalanceCache(toUser._id, toUserBalance);
     /*
      * - Send email notification
      */
@@ -188,9 +206,11 @@ async function createTransactionController(req, res) {
       transaction: transaction,
       status: "success",
     });
- 
-  } catch (error) {
 
+    /*
+     * - In case trnasaction fails
+     */
+  } catch (error) {
     console.error("Transaction error:", error);
     await session.abortTransaction();
     session.endSession();
@@ -202,13 +222,18 @@ async function createTransactionController(req, res) {
       toUser.user.name,
     );
 
+    await transactionModel.findOneAndUpdate(
+      { _id: transaction._id },
+      { status: "failed" },
+      { session },
+    );
+
     res.status(500).json({
       message: "Transaction failed",
       error: error.message,
       status: "failed",
     });
   }
-
 }
 
 async function createInitialFunds(req, res) {
@@ -251,33 +276,35 @@ async function createInitialFunds(req, res) {
   const session = await mongoose.startSession();
   session.startTransaction();
 
-  const transaction = await transactionModel(
-    {
-      fromAccount: fromUser._id,
-      toAccount: toUser._id,
-      amount,
-      status: "pending",
-      idempotencyKey,
-    },
-  );
+  const transaction = await transactionModel({
+    fromAccount: fromUser._id,
+    toAccount: toUser._id,
+    amount,
+    status: "pending",
+    idempotencyKey,
+  });
 
-  const createDebitLedgerEntry = await ledgerModel.create([
-    {
-      account: fromUser._id,
-      amount: amount,
-      transaction: transaction._id,
-      type: "debit",
-    }],
+  const createDebitLedgerEntry = await ledgerModel.create(
+    [
+      {
+        account: fromUser._id,
+        amount: amount,
+        transaction: transaction._id,
+        type: "debit",
+      },
+    ],
     { session },
   );
 
-  const createCreditLedgerEntry = await ledgerModel.create([
-    {
-      account: toUser._id,
-      amount: amount,
-      transaction: transaction._id,
-      type: "credit",
-    }],
+  const createCreditLedgerEntry = await ledgerModel.create(
+    [
+      {
+        account: toUser._id,
+        amount: amount,
+        transaction: transaction._id,
+        type: "credit",
+      },
+    ],
     { session },
   );
 
@@ -294,7 +321,70 @@ async function createInitialFunds(req, res) {
   });
 }
 
+async function getTransactionHistoryController(req, res) {
+  try {
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+
+    const account = await accountModel.findOne({
+      user: req.user._id,
+    });
+
+    if (!account) {
+      return res.status(404).json({
+        message: "Account not found",
+        status: "failed",
+      });
+    }
+
+    const transactions = await ledgerModel
+      .find({
+        account: account._id,
+      })
+      .populate({
+        path: "transaction",
+        populate: [
+          {
+            path: "fromAccount",
+            select: "user",
+          },
+          {
+            path: "toAccount",
+            select: "user",
+          },
+        ],
+      })
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit);
+
+    const totalTransactions = await ledgerModel.countDocuments({
+      account: account._id,
+    });
+
+    return res.status(200).json({
+      message: "Transaction history fetched successfully",
+      transactions,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(totalTransactions / limit),
+        totalTransactions,
+        limit,
+      },
+      status: "success",
+    });
+  } catch (error) {
+    console.error("Error fetching transaction history:", error);
+
+    return res.status(500).json({
+      message: "Internal Server Error",
+      status: "failed",
+    });
+  }
+}
+
 module.exports = {
   createTransactionController,
   createInitialFunds,
+  getTransactionHistoryController,
 };

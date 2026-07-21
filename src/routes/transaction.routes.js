@@ -17,5 +17,11 @@ router.post("/", authMiddleware.userAutheticatorMiddleware, transactionControlle
  */
 router.post("/system/initial-funds", authMiddleware.systemAccountAuthenticatorMiddleware, transactionController.createInitialFunds);
 
+/**
+ * - GET /api/transaction/history
+ * - This route is used to get the transaction history of the logged-in user.
+ */
+router.get("/history", authMiddleware.userAutheticatorMiddleware, transactionController.getTransactionHistoryController);
+
 
 module.exports = router;

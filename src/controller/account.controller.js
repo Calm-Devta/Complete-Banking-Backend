@@ -1,5 +1,5 @@
 const accountModel = require("../models/account.model");
-
+const redisService = require("../services/redis.service");
 
 /* *
  * - POST /api/account/
@@ -45,8 +45,22 @@ async function getBalanceController(req, res) {
                 status: "failed"
             })
         }
+        const start = Date.now();
+        // Check if the balance is cached in Redis
+        const cachedBalance = await redisService.getBalanceCache(account._id);
+        if (cachedBalance) {
+            return res.status(200).json({
+                message: "Balance fetched successfully (from cache)",
+                balance: cachedBalance,
+                status: "success"
+            })
+        }
 
+        //If not in cache, calculate the balance from the ledger
         const balance = await account.getBalance();
+
+        //Store the balance in Redis cache for future requests
+        await redisService.setBalanceCache(account._id, balance);
 
         res.status(200).json({
             message: "Balance fetched successfully",

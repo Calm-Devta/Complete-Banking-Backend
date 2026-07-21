@@ -42,7 +42,6 @@ userSchema.pre("save", async function () {
     return
 
 })
-
 userSchema.methods.comparePassword = async function (password) {
 
     console.log(password, this.password)

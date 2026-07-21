@@ -1,8 +1,8 @@
-const mopngoose = require("mongoose");
+const mongoose = require("mongoose");
 
-const ledgerSchema = new mopngoose.Schema({
+const ledgerSchema = new mongoose.Schema({
   account: {
-    type: mopngoose.Schema.Types.ObjectId,
+    type: mongoose.Schema.Types.ObjectId,
     ref: "account",
     required: [true, "Account is required"],
     index: true,
@@ -15,7 +15,7 @@ const ledgerSchema = new mopngoose.Schema({
     immutable: true,
   },
   transaction: {
-    type: mopngoose.Schema.Types.ObjectId,
+    type: mongoose.Schema.Types.ObjectId,
     ref: "transaction",
     required: [true, "Transaction is required"],
     index: true,
@@ -29,8 +29,9 @@ const ledgerSchema = new mopngoose.Schema({
     },
     required: [true, "Type is required"],
     immutable: true,
-},
-
+  }
+}, {
+  timestamps: true
 });
 
 function preventLedgerModification(){
@@ -48,6 +49,6 @@ ledgerSchema.pre("findOneAndRemove", preventLedgerModification);
 ledgerSchema.pre("findOneAndReplace", preventLedgerModification);
 
 
-const ledgerModel = mopngoose.model("ledger", ledgerSchema);
+const ledgerModel = mongoose.model("ledger", ledgerSchema);
 
 module.exports = ledgerModel;
